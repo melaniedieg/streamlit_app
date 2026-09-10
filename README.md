@@ -1,3 +1,19 @@
+---
+title: NYC Mixing Map
+emoji: 🗺️
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 8501
+pinned: false
+---
+
+<!-- The YAML block above is Hugging Face Spaces metadata -- it's what tells
+     a Space to build this repo's Dockerfile and which port to route traffic
+     to. It's inert/ignored everywhere else this README is read (GitHub,
+     local viewing, etc.), so it's safe to leave in even if you're not using
+     Spaces. -->
+
 # NYC Mixing Map (Streamlit)
 
 A Streamlit + pydeck version of the interactive venue-mixing map, built from the
@@ -20,6 +36,33 @@ push this folder to a GitHub repo (it can live inside `public_life`, e.g. as a
 `streamlit_app/` subfolder), sign in at share.streamlit.io with that GitHub
 account, and point it at `streamlit_app/app.py`. It redeploys automatically on
 every push.
+
+**Note:** Community Cloud's free tier runs on a small shared resource pool
+(around 1 CPU / 1GB RAM), which can make the app feel sluggish or unresponsive
+under real use even after the code itself is optimized -- see the Hugging
+Face Spaces option below for a free tier with meaningfully more headroom
+(2 vCPU / 16GB RAM as of this writing).
+
+### Hugging Face Spaces (more resources, still free)
+
+1. Create a Space at [huggingface.co/new-space](https://huggingface.co/new-space):
+   pick a name, choose **Docker** as the Space SDK, and **CPU basic (free)**
+   as the hardware.
+2. Hugging Face gives the new Space its own git remote
+   (`https://huggingface.co/spaces/<your-username>/<space-name>`). Add it
+   alongside this repo's existing remote and push:
+   ```
+   git remote add space https://huggingface.co/spaces/<your-username>/<space-name>
+   git push space main
+   ```
+   (You'll be prompted for a Hugging Face access token as the password --
+   generate one under Settings -> Access Tokens if you don't have one.)
+3. This repo already has the `Dockerfile` and README frontmatter Spaces
+   needs (`sdk: docker`, `app_port: 8501`) -- pushing triggers an automatic
+   build. Watch progress under the Space's "Logs" tab; once it says
+   "Running," the app is live at the Space's URL.
+4. Every future `git push space main` rebuilds and redeploys automatically,
+   same as Community Cloud.
 
 ## Data
 

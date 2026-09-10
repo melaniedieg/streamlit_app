@@ -364,11 +364,26 @@ TOOLTIP = {
     },
 }
 
+# pydeck ships every column of whatever DataFrame it's given to the browser
+# as JSON, on every rerun -- not just the columns actually referenced by the
+# layer's accessors/tooltip. The venue CSVs carry a bunch of modeling columns
+# (placekey, top_category, borough, months_confirmed, ...) that the map never
+# uses, so trimming to just what's drawn or shown in the tooltip cuts that
+# payload nearly in half (measured: 18.65MB -> 10.05MB on real June data) --
+# on a resource-constrained free host, less data serialized and shipped per
+# interaction is a real win on top of the fill_color vectorization fix.
+MAP_COLS = [
+    "lon", "lat", "fill_color", "radius",
+    "location_name", "residual_sign_html", "tooltip_category", "income_known_devices",
+    "income_mixing_score", "expected_mixing_score", "balance_score", "mixing_residual_z",
+    "tier_note",
+]
+
 if view_mode == "Residual":
     # split by evidence tier so rings paint above the plain dots
-    base_df = df[df["evidence_tier"] == "none"]
-    stable_df = df[df["evidence_tier"] == "stable_single_month"]
-    confirmed_df = df[df["evidence_tier"] == "confirmed_multi_month"]
+    base_df = df.loc[df["evidence_tier"] == "none", MAP_COLS]
+    stable_df = df.loc[df["evidence_tier"] == "stable_single_month", MAP_COLS]
+    confirmed_df = df.loc[df["evidence_tier"] == "confirmed_multi_month", MAP_COLS]
     layers = [
         pdk.Layer(
             "ScatterplotLayer", base_df, get_position=["lon", "lat"], get_fill_color="fill_color",
@@ -389,7 +404,7 @@ else:
     # Actual / Expected: every venue symbolized the same way, no tier rings
     layers = [
         pdk.Layer(
-            "ScatterplotLayer", df, get_position=["lon", "lat"], get_fill_color="fill_color",
+            "ScatterplotLayer", df[MAP_COLS], get_position=["lon", "lat"], get_fill_color="fill_color",
             get_radius="radius", radius_units="meters", pickable=True,
         ),
     ]
