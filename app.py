@@ -306,8 +306,14 @@ else:  # Expected
     colors = seq_color(df["expected_mixing_score"].to_numpy(), lo, hi)
 
 colors_int = colors.round().astype(int)
-df["r"], df["g"], df["b"] = colors_int[:, 0], colors_int[:, 1], colors_int[:, 2]
-df["fill_color"] = df[["r", "g", "b"]].apply(lambda row: [int(row.r), int(row.g), int(row.b), 190], axis=1)
+# Vectorized instead of a row-wise .apply(axis=1): that Python-level loop over
+# every venue (~28k+ rows) re-ran on *every* interaction -- fine on a fast
+# local machine, but ~40x slower than needed, which is exactly the kind of
+# cost that turns into a visible stall on Streamlit Community Cloud's
+# weaker/shared free-tier CPU. np.hstack + .tolist() does the same [r,g,b,190]
+# list-per-row shape pydeck wants, just without the per-row Python overhead.
+alpha_col = np.full((len(df), 1), 190, dtype=int)
+df["fill_color"] = np.hstack([colors_int, alpha_col]).tolist()
 
 # Evidence-tier sizing/rings are a Residual-view thing -- they mark venues
 # whose *residual* is a stable statistical outlier, which isn't a meaningful
