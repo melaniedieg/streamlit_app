@@ -1,4 +1,12 @@
-streamlit>=1.36
-pydeck>=0.9
-pandas>=2.0
-numpy>=1.24
+# Pinned to the exact versions confirmed working locally (2026-09) rather
+# than open-ended >= ranges -- a fresh Docker build on Hugging Face Spaces
+# was pulling the latest release of everything instead, and something in
+# that newer stack (most likely streamlit's bundled deck.gl frontend, since
+# that's what actually renders st.pydeck_chart, not the pydeck package
+# itself) rendered the map as a solid orange screen and pegged the browser's
+# GPU hard enough to lock up the whole machine. Pin bumps should be
+# deliberate and re-tested, not automatic.
+streamlit==1.45.1
+pydeck==0.9.3
+pandas==2.2.3
+numpy==2.1.3
