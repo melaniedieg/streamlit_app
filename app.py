@@ -1,10 +1,11 @@
 """
 NYC Mixing Map -- Streamlit + pydeck version
 
-Interactive map of venue-level income mixing across three independently-rebuilt
-months (May-Jul 2026). Reads the per-month CSVs in data/ (built by
-export_streamlit_data.py from the modeling pipeline's pickled outputs -- see
-the main repo's README.md for what those scores mean and how they're built).
+Interactive map of venue-level income mixing across eight independently-rebuilt
+periods (Dec 2025-Jul 2026). Reads the per-period CSVs in data/ (built by
+export_streamlit_data.py in income_mixing_methodology/ from the modeling
+pipeline's pickled outputs -- see the main repo's README.md for what those
+scores mean and how they're built).
 
 Run with:
     pip install -r requirements.txt
@@ -17,7 +18,16 @@ import streamlit as st
 
 st.set_page_config(page_title="NYC Mixing Map", layout="wide")
 
-MONTH_LABELS = {"May 2026": "2026-05", "June 2026": "2026-06", "July 2026": "2026-07"}
+MONTH_LABELS = {
+    "December 2025": "2025-12",
+    "January 2026": "2026-01",
+    "February 2026": "2026-02",
+    "March 2026": "2026-03",
+    "April 2026": "2026-04",
+    "May 2026": "2026-05",
+    "June 2026": "2026-06",
+    "July 2026": "2026-07",
+}
 
 # A coding-style monospace stack, applied to the whole app (including the
 # pydeck tooltip, which is styled separately below since it isn't plain HTML
@@ -85,7 +95,8 @@ st.markdown(
 @st.cache_data
 def load_month(month_key: str) -> pd.DataFrame:
     df = pd.read_csv(f"data/venues_{month_key}.csv")
-    df["evidence_tier"] = df["evidence_tier"].fillna("none")
+    df["persistence_tier"] = df["persistence_tier"].fillna("single_month_not_tested")
+    df["fdr_sig_05_hk"] = df["fdr_sig_05_hk"].fillna(False).astype(bool)
     return df
 
 @st.cache_data
@@ -100,6 +111,8 @@ def load_stats() -> pd.DataFrame:
 RES_PURPLE = np.array([142, 84, 186], dtype=float)
 RES_ORANGE = np.array([227, 132, 36], dtype=float)
 NEUTRAL = np.array([225, 223, 219], dtype=float)
+SIG_STROKE = [11, 11, 11, 230]      # FDR-significant (q < .05, HK-adjusted)
+TIER_STROKE = [130, 128, 120, 160]  # persistent but not (yet) FDR-significant
 
 
 def hex_of(rgb) -> str:
@@ -240,16 +253,21 @@ def dropdown_checklist(label: str, options: list, state_key: str, height: int = 
 
 # --------------------------------------------------------------- UI --------
 
-st.title("Where Did New Yorkers Mingle this Summer?")
+st.title("Where Do New Yorkers Mingle?")
 st.caption(
-    "Venue-level model residuals across three independently-rebuilt months "
-    "(May-Jul 2026). See the methodology notebook in this repo for how the "
-    "score and the model are built."
+    "Venue-level model residuals across eight independently-rebuilt periods "
+    "(Dec 2025-Jul 2026). CV R² is from a spatially-blocked cross-validation "
+    "(grouped by ~610m grid cell, not a plain random split), since nearby "
+    "venues' residuals are correlated and a random split overstates fit. "
+    "Ring strength marks how many periods a venue has persisted in; a solid "
+    "black ring marks statistical significance after FDR correction across "
+    "all pooled venues. See the methodology notebook in this repo for how "
+    "the score, the model, and the persistence pooling are built."
 )
 
 top1, top2, _ = st.columns([1.0, 1.4, 1.2])
 with top1:
-    month_choice = st.selectbox("Month", list(MONTH_LABELS.keys()), index=1)
+    month_choice = st.selectbox("Month", list(MONTH_LABELS.keys()), index=len(MONTH_LABELS) - 1)
 with top2:
     st.markdown(
         f'<div style="font-size:14px; color:rgb(49,51,63); margin-bottom:0.25rem; '
@@ -316,26 +334,52 @@ alpha_col = np.full((len(df), 1), 190, dtype=int)
 df["fill_color"] = np.hstack([colors_int, alpha_col]).tolist()
 
 # Evidence-tier sizing/rings are a Residual-view thing -- they mark venues
-# whose *residual* is a stable statistical outlier, which isn't a meaningful
-# annotation on a plain Actual/Expected mixing map, so those two views draw
-# every venue at the same plain size with no ring.
+# whose *residual* has now been pooled across multiple independently-rebuilt
+# periods, which isn't a meaningful annotation on a plain Actual/Expected
+# mixing map, so those two views draw every venue at the same plain size with
+# no ring. Tier here is the four-stage persistence ladder (replacing the old
+# two-tier bootstrap-only scheme): a venue only reaches "tested" tiers once
+# it's been pooled across 2+ periods via DerSimonian-Laird/REML+Hartung-Knapp.
 BASE_RADIUS = 7
+RADIUS_MAP = {
+    "single_month_not_tested": BASE_RADIUS,
+    "repeated_evidence": 10,
+    "provisional_persistence": 13,
+    "current_period_persistence": 16,
+}
 if view_mode == "Residual":
-    radius_map = {"none": BASE_RADIUS, "stable_single_month": 12, "confirmed_multi_month": 16}
-    df["radius"] = df["evidence_tier"].map(radius_map)
+    df["radius"] = df["persistence_tier"].map(RADIUS_MAP).fillna(BASE_RADIUS)
 else:
     df["radius"] = BASE_RADIUS
 
-tier_note_map = {
-    "none": "",
-    "stable_single_month": "<br/><i>Bootstrap-stable this month</i>",
-    "confirmed_multi_month": "<br/><i>Confirmed 2&ndash;3 independent months</i>",
-}
-df["tier_note"] = df["evidence_tier"].map(tier_note_map)
+# Ring color/width encode FDR significance *within* whichever tier a venue has
+# reached -- a venue persisting 4+ periods with a large ring but no black
+# stroke has been observed a long time without its mixing residual clearing
+# the (FDR-corrected) bar for a real effect; a black-ringed venue has.
+sig_mask = df["fdr_sig_05_hk"].to_numpy()[:, None]
+stroke_rgba = np.where(sig_mask, np.tile(SIG_STROKE, (len(df), 1)), np.tile(TIER_STROKE, (len(df), 1)))
+df["stroke_color"] = stroke_rgba.tolist()
+df["stroke_width"] = np.where(df["fdr_sig_05_hk"].to_numpy(), 2, 1)
 
-# sub_category is missing for a small share of venues (~7%) -- fall back to
-# top_category rather than leaving that tooltip line blank.
-df["tooltip_category"] = df["sub_category"].fillna(df["top_category"])
+# n_months varies per-row only for current_period_persistence, so build that
+# one case directly from the column rather than a flat dict value.
+tier_text = df["persistence_tier"].map(
+    {"repeated_evidence": "Seen in 2 periods", "provisional_persistence": "Persists across 3 periods"}
+).fillna("")
+is_current = df["persistence_tier"] == "current_period_persistence"
+tier_text = np.where(is_current, "Persists across " + df["n_months"].astype(str) + " periods", tier_text)
+
+sig_text = np.where(
+    df["fdr_sig_05_hk"].to_numpy(),
+    "<br/><b>Statistically significant</b> (FDR q=" + df["q_bh_hk"].round(3).astype(str) + ")",
+    "",
+)
+df["tier_note"] = np.where(tier_text != "", "<br/><i>" + tier_text + "</i>", "") + sig_text
+
+# sub_category is missing for a small share of venues (~7%, already
+# back-filled with top_category in the export script) -- kept as its own
+# column so the tooltip always has something to show.
+df["tooltip_category"] = df["sub_category"]
 
 # A small colored +/- next to the name flags the residual's direction at a
 # glance: orange + for more mixed than expected, purple - for less --
@@ -367,39 +411,39 @@ TOOLTIP = {
 # pydeck ships every column of whatever DataFrame it's given to the browser
 # as JSON, on every rerun -- not just the columns actually referenced by the
 # layer's accessors/tooltip. The venue CSVs carry a bunch of modeling columns
-# (placekey, top_category, borough, months_confirmed, ...) that the map never
-# uses, so trimming to just what's drawn or shown in the tooltip cuts that
-# payload nearly in half (measured: 18.65MB -> 10.05MB on real June data) --
-# on a resource-constrained free host, less data serialized and shipped per
-# interaction is a real win on top of the fill_color vectorization fix.
+# (placekey, top_category, borough, months, mu_hk, q_bh_hk, ...) that the map
+# never uses, so trimming to just what's drawn or shown in the tooltip cuts
+# that payload substantially -- on a resource-constrained free host, less
+# data serialized and shipped per interaction is a real win on top of the
+# fill_color vectorization fix.
 MAP_COLS = [
-    "lon", "lat", "fill_color", "radius",
+    "lon", "lat", "fill_color", "radius", "stroke_color", "stroke_width",
     "location_name", "residual_sign_html", "tooltip_category", "income_known_devices",
     "income_mixing_score", "expected_mixing_score", "balance_score", "mixing_residual_z",
     "tier_note",
 ]
 
 if view_mode == "Residual":
-    # split by evidence tier so rings paint above the plain dots
-    base_df = df.loc[df["evidence_tier"] == "none", MAP_COLS]
-    stable_df = df.loc[df["evidence_tier"] == "stable_single_month", MAP_COLS]
-    confirmed_df = df.loc[df["evidence_tier"] == "confirmed_multi_month", MAP_COLS]
-    layers = [
-        pdk.Layer(
-            "ScatterplotLayer", base_df, get_position=["lon", "lat"], get_fill_color="fill_color",
-            get_radius="radius", radius_units="meters", pickable=True,
-        ),
-        pdk.Layer(
-            "ScatterplotLayer", stable_df, get_position=["lon", "lat"], get_fill_color="fill_color",
-            get_radius="radius", radius_units="meters", pickable=True,
-            stroked=True, get_line_color=[11, 11, 11, 200], line_width_min_pixels=1,
-        ),
-        pdk.Layer(
-            "ScatterplotLayer", confirmed_df, get_position=["lon", "lat"], get_fill_color="fill_color",
-            get_radius="radius", radius_units="meters", pickable=True,
-            stroked=True, get_line_color=[11, 11, 11, 230], line_width_min_pixels=2,
-        ),
-    ]
+    # split by persistence tier so higher tiers paint above lower ones; the
+    # lowest tier ("single_month_not_tested" -- not yet eligible for pooling)
+    # draws with no ring at all, since nothing has been tested on it yet.
+    tier_order = ["single_month_not_tested", "repeated_evidence", "provisional_persistence",
+                  "current_period_persistence"]
+    layers = []
+    for i, tier in enumerate(tier_order):
+        tier_df = df.loc[df["persistence_tier"] == tier, MAP_COLS]
+        if tier == "single_month_not_tested":
+            layers.append(pdk.Layer(
+                "ScatterplotLayer", tier_df, get_position=["lon", "lat"], get_fill_color="fill_color",
+                get_radius="radius", radius_units="meters", pickable=True,
+            ))
+        else:
+            layers.append(pdk.Layer(
+                "ScatterplotLayer", tier_df, get_position=["lon", "lat"], get_fill_color="fill_color",
+                get_radius="radius", radius_units="meters", pickable=True,
+                stroked=True, get_line_color="stroke_color", get_line_width="stroke_width",
+                line_width_units="pixels", line_width_min_pixels=1,
+            ))
 else:
     # Actual / Expected: every venue symbolized the same way, no tier rings
     layers = [
@@ -450,7 +494,7 @@ def render_legend(mode: str):
         left_label, mid_label, right_label = "less mixed", "expected", "more mixed"
     else:
         gradient = f"linear-gradient(90deg, {hex_of(SEQ_LOW)}, {hex_of(SEQ_HIGH)})"
-        caption = f"{mode} mixing score (this month's 2nd&ndash;98th percentile range)"
+        caption = f"{mode} mixing score (this period's 2nd&ndash;98th percentile range)"
         left_label, mid_label, right_label = "lower mixing", "", "higher mixing"
 
     mid_html = f"<span>{mid_label}</span>" if mid_label else "<span></span>"
@@ -458,14 +502,24 @@ def render_legend(mode: str):
         """
           <div style="display:flex; gap:20px; margin-top:10px; flex-wrap:wrap;">
             <div style="display:flex; align-items:center; gap:6px;">
-              <span style="width:12px;height:12px;border-radius:50%;border:1.4px solid #52514e;
+              <span style="width:10px;height:10px;border-radius:50%;border:1px solid #827e73;
                            display:inline-block;"></span>
-              <span style="font-size:10.5px; color:#52514e;">Bootstrap-stable this month</span>
+              <span style="font-size:10.5px; color:#52514e;">Seen 2 periods</span>
             </div>
             <div style="display:flex; align-items:center; gap:6px;">
-              <span style="width:12px;height:12px;border-radius:50%;border:2px solid #0b0b0b;
+              <span style="width:13px;height:13px;border-radius:50%;border:1px solid #827e73;
                            display:inline-block;"></span>
-              <span style="font-size:10.5px; color:#52514e;">Confirmed 2&ndash;3 months</span>
+              <span style="font-size:10.5px; color:#52514e;">Persists 3 periods</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="width:16px;height:16px;border-radius:50%;border:1px solid #827e73;
+                           display:inline-block;"></span>
+              <span style="font-size:10.5px; color:#52514e;">Persists 4&#43; periods</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="width:14px;height:14px;border-radius:50%;border:2px solid #0b0b0b;
+                           display:inline-block;"></span>
+              <span style="font-size:10.5px; color:#52514e;">Significant, FDR q&lt;.05 (HK)</span>
             </div>
           </div>
         """
@@ -497,6 +551,20 @@ render_legend(view_mode)
 s = stats.loc[month_key]
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Venues shown", f"{len(df):,}")
-c2.metric("Model CV R²", f"{s['cv_r2']:.3f}")
-c3.metric("Stable, 1 month", int((df["evidence_tier"] == "stable_single_month").sum()))
-c4.metric("Confirmed, 2–3 months", int((df["evidence_tier"] == "confirmed_multi_month").sum()))
+c2.metric(
+    "Model CV R²",
+    f"{s['cv_r2']:.3f}",
+    help="Mean over 5 spatially-blocked folds (grouped by ~610m grid cell), "
+         f"range {s['cv_r2_fold_min']:.3f}–{s['cv_r2_fold_max']:.3f} this period.",
+)
+c3.metric(
+    "Significant (FDR q<.05)",
+    int(df["fdr_sig_05_hk"].sum()),
+    help="REML+Hartung-Knapp pooled residual, Benjamini-Hochberg corrected across all "
+         "pooled venues -- the strictest bar used in this project.",
+)
+c4.metric(
+    "Persists 4+ periods",
+    int((df["persistence_tier"] == "current_period_persistence").sum()),
+    help="Pooled across 4 or more of the project's 8 periods (not a full annual cycle yet).",
+)

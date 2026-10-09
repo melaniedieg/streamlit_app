@@ -17,7 +17,8 @@ pinned: false
 # NYC Mixing Map (Streamlit)
 
 A Streamlit + pydeck version of the interactive venue-mixing map, built from the
-same modeling pipeline as `income_mixing_model.ipynb` in the main repo.
+same modeling pipeline as the `income_mixing_methodology/` notebooks and scripts
+in the main repo.
 
 ## Run locally
 
@@ -66,15 +67,26 @@ Face Spaces option below for a free tier with meaningfully more headroom
 
 ## Data
 
-`data/venues_2026-0{5,6,7}.csv` -- one row per venue per month: location,
-category, borough, device count, the raw mixing/balance scores, the model's
-expected scores, the residual z-scores, and the bootstrap-stability /
-cross-month-replication evidence tier. `data/month_stats.csv` holds each
-month's overall cross-validated R².
+`data/venues_<period>.csv` -- one row per venue per period, for all 8 periods
+currently pooled in the project (`2025-12`, `2026-01` through `2026-07`):
+location, category, borough, device count, the raw mixing/balance scores, the
+model's expected score from a **spatially-blocked** cross-validation (grouped
+by ~610m grid cell -- not a plain random split, since nearby venues'
+residuals are correlated 0.52-0.61 and a random split overstates fit), the
+residual z-score (within borough), and that venue's cross-period persistence
+evidence: `persistence_tier` (`single_month_not_tested` / `repeated_evidence`
+/ `provisional_persistence` / `current_period_persistence`, by how many of
+the 8 periods it's been pooled across), `n_months` and `months` (which ones),
+and `mu_hk` / `q_bh_hk` / `fdr_sig_05_hk` -- the REML+Hartung-Knapp pooled
+residual and its Benjamini-Hochberg FDR-corrected significance, the
+strictest bar used anywhere in this project. `data/month_stats.csv` holds
+each period's cross-validated R² (mean and fold range).
 
-These were exported from the same pickled model outputs described in the main
-repo's `README.md` -- regenerate them with `export_streamlit_data.py` there if
-the underlying model changes.
+These are exported from the same pickled model + persistence-pooling outputs
+described in `income_mixing_methodology/README.md` -- regenerate them with
+`income_mixing_methodology/export_streamlit_data.py` if the underlying model
+or pooling changes. That script also documents, in its own header comment,
+why it reads `expected_mixing_cv`/`cv_full` and not a separately-refit model.
 
 ## Notes
 
@@ -85,15 +97,21 @@ the underlying model changes.
   scale, since they're the same kind of measurement shown twice; Residual
   uses a purple (less mixed than expected) <-> gray (as expected) <-> orange
   (more mixed than expected) diverging scale. Every color domain is that
-  month's own 2nd-98th percentile range rather than a flat scale, since the
+  period's own 2nd-98th percentile range rather than a flat scale, since the
   underlying scores cluster near the top of their theoretical range and a
   flat domain made almost everything look the same shade. A one-sentence
   definition of whichever measure is selected appears under the toggle.
-- Evidence-tier rings (thin ring = bootstrap-stable in that one month, thick
-  ring = confirmed independently in 2-3 separate monthly rebuilds) only
-  appear in the Residual view, since they describe a venue's *residual*
-  stability -- on Actual/Expected every venue is drawn as the same plain dot,
-  so the sizing doesn't imply something the map isn't actually showing.
+- Persistence rings only appear in the Residual view, since they describe a
+  venue's *residual's* cross-period stability -- on Actual/Expected every
+  venue is drawn as the same plain dot, so the sizing doesn't imply something
+  the map isn't actually showing. Ring size grows with how many periods a
+  venue has been pooled across (seen in 2, persists 3, persists 4+); a solid
+  black ring (vs. a thin gray one) marks that the pooled residual actually
+  clears FDR-corrected significance at that tier, not just that the venue has
+  been observed a while. A venue can persist across all 8 periods and still
+  not carry a black ring, if its pooled effect size never clears the bar --
+  that distinction is deliberate, since persistence alone isn't evidence of
+  an unusual venue, only enough data to test whether it is one.
 - No borough or category filters -- residuals are already z-scored within
   borough, so a filter mostly just declutters rather than revealing anything
   new, and panning/zooming the map does the same job. The hover tooltip
@@ -103,7 +121,11 @@ the underlying model changes.
   font stack, matching the HTML map. The pydeck map's scroll-zoom controller
   is tuned above deck.gl's default speed, with smooth interpolation, so it
   doesn't feel sluggish or snap in discrete steps.
-- This was built and syntax-checked in an environment without network access
-  to install Streamlit/pydeck, so it hasn't been run end-to-end here -- test
-  it locally before relying on it. The color/radius/groupby logic was
-  verified separately against the real CSV data with plain pandas/numpy.
+- This version has been run end-to-end with Streamlit's `AppTest` harness
+  (full script execution with no exceptions, correct computed stats checked
+  against the exported CSVs) and as a live local server, which the original
+  three-month version hadn't been -- still worth a quick click-through
+  locally after any further change, since `AppTest` doesn't drive the actual
+  browser/deck.gl rendering. The color/radius/tier/tooltip logic was also
+  verified directly against the real CSV data for all 8 periods with plain
+  pandas/numpy.
