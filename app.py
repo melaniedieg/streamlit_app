@@ -111,8 +111,12 @@ def load_stats() -> pd.DataFrame:
 RES_PURPLE = np.array([142, 84, 186], dtype=float)
 RES_ORANGE = np.array([227, 132, 36], dtype=float)
 NEUTRAL = np.array([225, 223, 219], dtype=float)
-SIG_STROKE = [11, 11, 11, 230]      # FDR-significant (q < .05, HK-adjusted)
-TIER_STROKE = [130, 128, 120, 160]  # persistent but not (yet) FDR-significant
+# Used only by the evidence charts below the map now (persistence/significance
+# used to be drawn as rings on the dots themselves -- moved into charts/a
+# table instead, since encoding color + size + ring + stroke all on one dot
+# read as crowded).
+CHART_SIG_COLOR = "#0b0b0b"
+CHART_NONSIG_COLOR = "#c9c7c0"
 
 
 def hex_of(rgb) -> str:
@@ -256,11 +260,12 @@ def dropdown_checklist(label: str, options: list, state_key: str, height: int = 
 st.title("Where Do New Yorkers Mingle?")
 st.caption(
     "Venue-level model residuals across eight independently-rebuilt periods "
-    "(Dec 2025-Jul 2026). Ring size marks how many periods a venue has "
-    "persisted in; a solid black ring marks statistical significance after "
-    "FDR correction. See the Glossary page for what every term and ring means."
+    "(Dec 2025-Jul 2026). The map colors each venue by its residual; "
+    "cross-period persistence and FDR-corrected significance are broken out "
+    "in the charts and table below it instead. See the Glossary page for "
+    "what every term means."
 )
-st.page_link("pages/1_Glossary.py", label="Glossary -- what every term and ring means", icon="ℹ️")
+st.page_link("pages/1_Glossary.py", label="Glossary -- what every term means", icon="ℹ️")
 
 top1, top2, _ = st.columns([1.0, 1.4, 1.2])
 with top1:
@@ -330,48 +335,14 @@ colors_int = colors.round().astype(int)
 alpha_col = np.full((len(df), 1), 190, dtype=int)
 df["fill_color"] = np.hstack([colors_int, alpha_col]).tolist()
 
-# Evidence-tier sizing/rings are a Residual-view thing -- they mark venues
-# whose *residual* has now been pooled across multiple independently-rebuilt
-# periods, which isn't a meaningful annotation on a plain Actual/Expected
-# mixing map, so those two views draw every venue at the same plain size with
-# no ring. Tier here is the four-stage persistence ladder (replacing the old
-# two-tier bootstrap-only scheme): a venue only reaches "tested" tiers once
-# it's been pooled across 2+ periods via DerSimonian-Laird/REML+Hartung-Knapp.
-BASE_RADIUS = 4
-RADIUS_MAP = {
-    "single_month_not_tested": BASE_RADIUS,
-    "repeated_evidence": 5,
-    "provisional_persistence": 6,
-    "current_period_persistence": 7,
-}
-if view_mode == "Residual":
-    df["radius"] = df["persistence_tier"].map(RADIUS_MAP).fillna(BASE_RADIUS)
-else:
-    df["radius"] = BASE_RADIUS
-
-# Ring color/width encode FDR significance *within* whichever tier a venue has
-# reached -- a venue persisting 4+ periods with a large ring but no black
-# stroke has been observed a long time without its mixing residual clearing
-# the (FDR-corrected) bar for a real effect; a black-ringed venue has.
-sig_mask = df["fdr_sig_05_hk"].to_numpy()[:, None]
-stroke_rgba = np.where(sig_mask, np.tile(SIG_STROKE, (len(df), 1)), np.tile(TIER_STROKE, (len(df), 1)))
-df["stroke_color"] = stroke_rgba.tolist()
-df["stroke_width"] = np.where(df["fdr_sig_05_hk"].to_numpy(), 2, 1)
-
-# n_months varies per-row only for current_period_persistence, so build that
-# one case directly from the column rather than a flat dict value.
-tier_text = df["persistence_tier"].map(
-    {"repeated_evidence": "Seen in 2 periods", "provisional_persistence": "Persists across 3 periods"}
-).fillna("")
-is_current = df["persistence_tier"] == "current_period_persistence"
-tier_text = np.where(is_current, "Persists across " + df["n_months"].astype(str) + " periods", tier_text)
-
-sig_text = np.where(
-    df["fdr_sig_05_hk"].to_numpy(),
-    "<br/><b>Statistically significant</b> (FDR q=" + df["q_bh_hk"].round(3).astype(str) + ")",
-    "",
-)
-df["tier_note"] = np.where(tier_text != "", "<br/><i>" + tier_text + "</i>", "") + sig_text
+# Every dot is now drawn at the same size, on all three views -- persistence
+# tier and FDR significance used to be drawn as rings here (size + stroke on
+# top of the residual color), which read as crowded with color, size, and two
+# different ring styles all on one small dot. That information still exists;
+# it's just in the evidence charts and the top-venues table below the map
+# instead of encoded onto the dot itself.
+BASE_RADIUS = 5
+df["radius"] = BASE_RADIUS
 
 # sub_category is missing for a small share of venues (~7%, already
 # back-filled with top_category in the export script) -- kept as its own
@@ -395,7 +366,6 @@ TOOLTIP = {
         "Mixing {income_mixing_score} (expected {expected_mixing_score}) &middot; "
         "Balance {balance_score}<br/>"
         "Residual z {mixing_residual_z}"
-        "{tier_note}"
     ),
     "style": {
         "backgroundColor": "#0b0b0b",
@@ -408,54 +378,29 @@ TOOLTIP = {
 # pydeck ships every column of whatever DataFrame it's given to the browser
 # as JSON, on every rerun -- not just the columns actually referenced by the
 # layer's accessors/tooltip. The venue CSVs carry a bunch of modeling columns
-# (placekey, top_category, borough, months, mu_hk, q_bh_hk, ...) that the map
-# never uses, so trimming to just what's drawn or shown in the tooltip cuts
-# that payload substantially -- on a resource-constrained free host, less
-# data serialized and shipped per interaction is a real win on top of the
-# fill_color vectorization fix.
+# (placekey, top_category, borough, months, persistence_tier, mu_hk, q_bh_hk,
+# ...) that the map itself never uses (the evidence charts below read them
+# straight from df, not from the map layer), so trimming to just what's drawn
+# or shown in the tooltip cuts that payload substantially -- on a
+# resource-constrained free host, less data serialized and shipped per
+# interaction is a real win on top of the fill_color vectorization fix.
 MAP_COLS = [
-    "lon", "lat", "fill_color", "radius", "stroke_color", "stroke_width",
+    "lon", "lat", "fill_color", "radius",
     "location_name", "residual_sign_html", "tooltip_category", "income_known_devices",
     "income_mixing_score", "expected_mixing_score", "balance_score", "mixing_residual_z",
-    "tier_note",
 ]
 
-if view_mode == "Residual":
-    # split by persistence tier so higher tiers paint above lower ones; the
-    # lowest tier ("single_month_not_tested" -- not yet eligible for pooling)
-    # draws with no ring at all, since nothing has been tested on it yet.
-    # radius_min/max_pixels caps how big a dot gets on screen regardless of
-    # zoom -- get_radius is in meters, so without a cap, zooming in on a
-    # dense cluster blew every dot up to the point of solid overlap, which
-    # read as "crowded" rather than as four distinct ring sizes.
-    tier_order = ["single_month_not_tested", "repeated_evidence", "provisional_persistence",
-                  "current_period_persistence"]
-    layers = []
-    for i, tier in enumerate(tier_order):
-        tier_df = df.loc[df["persistence_tier"] == tier, MAP_COLS]
-        if tier == "single_month_not_tested":
-            layers.append(pdk.Layer(
-                "ScatterplotLayer", tier_df, get_position=["lon", "lat"], get_fill_color="fill_color",
-                get_radius="radius", radius_units="meters", radius_min_pixels=2, radius_max_pixels=9,
-                pickable=True,
-            ))
-        else:
-            layers.append(pdk.Layer(
-                "ScatterplotLayer", tier_df, get_position=["lon", "lat"], get_fill_color="fill_color",
-                get_radius="radius", radius_units="meters", radius_min_pixels=2, radius_max_pixels=9,
-                pickable=True,
-                stroked=True, get_line_color="stroke_color", get_line_width="stroke_width",
-                line_width_units="pixels", line_width_min_pixels=1, line_width_max_pixels=2,
-            ))
-else:
-    # Actual / Expected: every venue symbolized the same way, no tier rings
-    layers = [
-        pdk.Layer(
-            "ScatterplotLayer", df[MAP_COLS], get_position=["lon", "lat"], get_fill_color="fill_color",
-            get_radius="radius", radius_units="meters", radius_min_pixels=2, radius_max_pixels=9,
-            pickable=True,
-        ),
-    ]
+# Every view draws the same way now: one layer, one size, color varying by
+# view mode. radius_min/max_pixels caps how big a dot gets on screen
+# regardless of zoom -- get_radius is in meters, so without a cap, zooming in
+# on a dense cluster blew every dot up to the point of solid overlap.
+layers = [
+    pdk.Layer(
+        "ScatterplotLayer", df[MAP_COLS], get_position=["lon", "lat"], get_fill_color="fill_color",
+        get_radius="radius", radius_units="meters", radius_min_pixels=2, radius_max_pixels=9,
+        pickable=True,
+    ),
+]
 # No static on-map name labels -- venue names only ever show in the hover
 # tooltip, not as always-on text painted over the map.
 
@@ -489,9 +434,9 @@ st.pydeck_chart(
 
 def render_legend(mode: str):
     """A drawn gradient-bar legend (not text): the diverging purple/orange bar
-    for Residual, or the sequential blue bar for Actual/Expected. The ring
-    swatches only apply to Residual -- Actual/Expected draw every venue the
-    same way, so there's nothing on the map for them to explain there."""
+    for Residual, or the sequential blue bar for Actual/Expected. Every dot is
+    the same size now -- persistence/significance moved to the evidence
+    charts and table below, so there's no ring swatch to explain here."""
     if mode == "Residual":
         gradient = f"linear-gradient(90deg, {hex_of(RES_PURPLE)}, {hex_of(NEUTRAL)}, {hex_of(RES_ORANGE)})"
         caption = "Residual vs. expected mixing"
@@ -502,34 +447,6 @@ def render_legend(mode: str):
         left_label, mid_label, right_label = "lower mixing", "", "higher mixing"
 
     mid_html = f"<span>{mid_label}</span>" if mid_label else "<span></span>"
-    rings_html = (
-        """
-          <div style="display:flex; gap:13px; margin-top:8px; flex-wrap:wrap;">
-            <div style="display:flex; align-items:center; gap:5px;">
-              <span style="width:7px;height:7px;border-radius:50%;border:1px solid #827e73;
-                           display:inline-block;"></span>
-              <span style="font-size:10px; color:#52514e;">Seen 2 periods</span>
-            </div>
-            <div style="display:flex; align-items:center; gap:5px;">
-              <span style="width:8px;height:8px;border-radius:50%;border:1px solid #827e73;
-                           display:inline-block;"></span>
-              <span style="font-size:10px; color:#52514e;">Persists 3 periods</span>
-            </div>
-            <div style="display:flex; align-items:center; gap:5px;">
-              <span style="width:9px;height:9px;border-radius:50%;border:1px solid #827e73;
-                           display:inline-block;"></span>
-              <span style="font-size:10px; color:#52514e;">Persists 4&#43; periods</span>
-            </div>
-            <div style="display:flex; align-items:center; gap:5px;">
-              <span style="width:9px;height:9px;border-radius:50%;border:2px solid #0b0b0b;
-                           display:inline-block;"></span>
-              <span style="font-size:10px; color:#52514e;">Significant, FDR q&lt;.05 (HK)</span>
-            </div>
-          </div>
-        """
-        if mode == "Residual"
-        else ""
-    )
     st.markdown(
         f"""
         <div style="font-family:{MONO}; margin-top:2px;">
@@ -541,7 +458,6 @@ def render_legend(mode: str):
                       color:#8a8a86; margin-top:4px;">
             <span>{left_label}</span>{mid_html}<span>{right_label}</span>
           </div>
-          {rings_html}
         </div>
         """,
         unsafe_allow_html=True,
@@ -572,3 +488,108 @@ c4.metric(
     int((df["persistence_tier"] == "current_period_persistence").sum()),
     help="Pooled across 4 or more of the project's 8 periods (not a full annual cycle yet).",
 )
+
+# ------------------------------------------------------- evidence charts ---
+# Persistence tier and FDR significance used to be drawn as rings on the map
+# dots; they're broken out here instead, as charts and a table, for this
+# period's venues (df, same filtering as the map above).
+
+TIER_ORDER = [
+    ("single_month_not_tested", "1. Not yet tested"),
+    ("repeated_evidence", "2. Seen 2 periods"),
+    ("provisional_persistence", "3. Persists 3 periods"),
+    ("current_period_persistence", "4. Persists 4+ periods"),
+]
+TIER_LABEL = dict(TIER_ORDER)
+TIER_LABEL_ORDER = [lbl for _, lbl in TIER_ORDER]
+SIG_LABEL = {True: "Significant (FDR q<.05)", False: "Not (yet) significant"}
+
+st.divider()
+st.subheader("Evidence breakdown")
+st.caption(f"All for {month_choice}'s {len(df):,} venues -- same scope as the map above.")
+
+tab_tier, tab_cat, tab_borough, tab_table = st.tabs(
+    ["Tier & significance", "By category", "By borough", "Top significant venues"]
+)
+
+with tab_tier:
+    tier_df = df.copy()
+    tier_df["Tier"] = pd.Categorical(
+        tier_df["persistence_tier"].map(TIER_LABEL), categories=TIER_LABEL_ORDER, ordered=True
+    )
+    tier_df["Significance"] = tier_df["fdr_sig_05_hk"].map(SIG_LABEL)
+    tier_counts = (
+        tier_df.groupby(["Tier", "Significance"], observed=True).size().reset_index(name="Venues")
+    )
+    st.bar_chart(tier_counts, x="Tier", y="Venues", color="Significance")
+    st.caption(
+        "How many venues have reached each stage of cross-period pooling, split by whether "
+        "their pooled residual clears the FDR-corrected significance bar. A venue can reach "
+        "the top tier (pooled across all periods it's been eligible for) without ever turning "
+        "significant -- persistence alone isn't evidence of an unusual venue, only enough data "
+        "to test whether it is one."
+    )
+
+with tab_cat:
+    cat_stats = (
+        df.groupby("top_category")
+        .agg(n=("placekey", "size"), mean_resid=("mixing_residual_z", "mean"),
+             pct_sig=("fdr_sig_05_hk", "mean"))
+        .reset_index()
+    )
+    cat_stats = cat_stats[cat_stats["n"] >= 30].sort_values("n", ascending=False).head(15)
+    cat_stats["pct_sig"] = (cat_stats["pct_sig"] * 100).round(1)
+    cat_stats = cat_stats.sort_values("mean_resid")
+    cat_stats["top_category"] = pd.Categorical(
+        cat_stats["top_category"], categories=cat_stats["top_category"], ordered=True
+    )
+    st.bar_chart(cat_stats, x="top_category", y="mean_resid", horizontal=True)
+    st.caption(
+        "Mean residual z-score by top category, for the 15 categories with the most venues "
+        "this period (at least 30). Positive (right) means that category tends to mix more "
+        "than the model expects for where its venues sit; negative (left) means less. "
+        "This is top_category, not sub_category, since sub_category is missing for ~7% of "
+        "venues and top_category is always present."
+    )
+
+with tab_borough:
+    borough_stats = (
+        df.groupby("borough")
+        .agg(n=("placekey", "size"), pct_sig=("fdr_sig_05_hk", "mean"),
+             pct_persist4=("persistence_tier", lambda s: (s == "current_period_persistence").mean()))
+        .reset_index()
+    )
+    borough_stats["pct_sig"] = (borough_stats["pct_sig"] * 100).round(1)
+    borough_stats["pct_persist4"] = (borough_stats["pct_persist4"] * 100).round(1)
+    bc1, bc2 = st.columns(2)
+    with bc1:
+        st.bar_chart(borough_stats, x="borough", y="pct_sig", y_label="% significant")
+    with bc2:
+        st.bar_chart(borough_stats, x="borough", y="pct_persist4", y_label="% persisting 4+ periods")
+    st.caption(
+        "Not mean residual by borough -- residuals are z-scored *within* borough, so that "
+        "mean is ~0 everywhere by construction. These instead show the share of each "
+        "borough's venues that clear FDR significance, and the share that have persisted "
+        "4 or more periods."
+    )
+
+with tab_table:
+    sig_df = df[df["fdr_sig_05_hk"]].copy()
+    if sig_df.empty:
+        st.info("No FDR-significant venues this period.")
+    else:
+        sig_df["Tier"] = sig_df["persistence_tier"].map(TIER_LABEL)
+        show_cols = {
+            "location_name": "Venue", "borough": "Borough", "top_category": "Category",
+            "mixing_residual_z": "Residual z", "Tier": "Tier", "n_months": "Periods pooled",
+            "q_bh_hk": "FDR q",
+        }
+        top_pos = sig_df.nlargest(15, "mixing_residual_z")[list(show_cols)].rename(columns=show_cols)
+        top_neg = sig_df.nsmallest(15, "mixing_residual_z")[list(show_cols)].rename(columns=show_cols)
+        st.markdown("**Most mixed beyond expectation**")
+        st.dataframe(top_pos, hide_index=True, use_container_width=True)
+        st.markdown("**Most segregated beyond expectation**")
+        st.dataframe(top_neg, hide_index=True, use_container_width=True)
+        st.caption(
+            "Top 15 each way among this period's FDR-significant venues, by residual z-score."
+        )
