@@ -79,8 +79,11 @@ evidence: `persistence_tier` (`single_month_not_tested` / `repeated_evidence`
 the 8 periods it's been pooled across), `n_months` and `months` (which ones),
 and `mu_hk` / `q_bh_hk` / `fdr_sig_05_hk` -- the REML+Hartung-Knapp pooled
 residual and its Benjamini-Hochberg FDR-corrected significance, the
-strictest bar used anywhere in this project. `data/month_stats.csv` holds
-each period's cross-validated R² (mean and fold range).
+strictest bar used anywhere in this project. Also `display_category`, which
+equals `top_category` except for one relabeled case (see Notes below).
+A `placekey` is a group id (`GRP#####`), not a raw POI id, for the ~265
+venues that are really several merged POI records -- see Notes. `data/month_stats.csv`
+holds each period's cross-validated R² (mean and fold range).
 
 These are exported from the same pickled model + persistence-pooling outputs
 described in `income_mixing_methodology/README.md` -- regenerate them with
@@ -101,17 +104,27 @@ why it reads `expected_mixing_cv`/`cv_full` and not a separately-refit model.
   underlying scores cluster near the top of their theoretical range and a
   flat domain made almost everything look the same shade. A one-sentence
   definition of whichever measure is selected appears under the toggle.
-- Persistence rings only appear in the Residual view, since they describe a
-  venue's *residual's* cross-period stability -- on Actual/Expected every
-  venue is drawn as the same plain dot, so the sizing doesn't imply something
-  the map isn't actually showing. Ring size grows with how many periods a
-  venue has been pooled across (seen in 2, persists 3, persists 4+); a solid
-  black ring (vs. a thin gray one) marks that the pooled residual actually
-  clears FDR-corrected significance at that tier, not just that the venue has
-  been observed a while. A venue can persist across all 8 periods and still
-  not carry a black ring, if its pooled effect size never clears the bar --
-  that distinction is deliberate, since persistence alone isn't evidence of
-  an unusual venue, only enough data to test whether it is one.
+- The map itself only colors by residual now -- persistence tier and FDR
+  significance used to be drawn as rings on the dots (size for tier, a black
+  vs. gray stroke for significance), but color + size + two ring styles all
+  on one small dot read as crowded. That evidence moved into an "Evidence
+  breakdown" section below the map instead: a tier-and-significance bar
+  chart, mean residual by category, significance/persistence rate by
+  borough, and a table of the period's top FDR-significant venues (most
+  mixed and most segregated beyond expectation). A venue can be in the
+  largest persistence tier (pooled across all 8 periods) and still not be
+  significant, if its pooled effect size never clears the FDR bar -- that
+  distinction is deliberate, since persistence alone isn't evidence of an
+  unusual venue, only enough data to test whether it is one.
+- Two known data issues were found and fixed during a defensibility review:
+  a handful of venues (265 groups -- places with inconsistent POI names over
+  time, like Jacob Riis Park) used to draw as 2-3 separate dots for one
+  physical place; they're now collapsed to one row per period. And the
+  category breakdown relabels one specific case -- venues filed under
+  "Museums, Historical Sites, and Similar Institutions" are ~91% nature
+  parks by sub-category, not museums -- so that chart doesn't read as a
+  museum pattern when it's really a park one. Both are explained in the
+  Glossary page and in `export_streamlit_data.py`'s header comment.
 - No borough or category filters -- residuals are already z-scored within
   borough, so a filter mostly just declutters rather than revealing anything
   new, and panning/zooming the map does the same job. The hover tooltip

@@ -25,8 +25,8 @@ st.markdown(
 
 st.title("Glossary")
 st.caption(
-    "What every number, color, and ring on the map means. The map itself is on the "
-    "other page in the sidebar."
+    "What every number and color means -- on the map, and in the evidence charts/table "
+    "below it. The map itself is on the other page in the sidebar."
 )
 
 st.markdown(
@@ -93,25 +93,34 @@ venue's residual has been across time -- it is a separate question from
 whether that pooled residual is large enough to call a real effect, which is
 what FDR significance (next section) answers.
 
-**Persistence tier** (ring size on the map; Residual view only):
+**Persistence tier** -- not shown on the map itself; it's the "Tier &
+significance" tab and the "Top significant venues" table below the map
+(`persistence_tier` in the data):
 
 - *Single period, not yet tested* -- eligible in only one period so far;
-  nothing to pool yet. No ring.
-- *Seen in 2 periods* -- smallest ring.
-- *Persists across 3 periods* -- medium ring.
-- *Persists across 4+ periods* -- largest ring. Note this is explicitly
-  **not** "annual persistence" -- the project doesn't yet span a full
-  seasonal cycle.
+  nothing to pool yet.
+- *Seen in 2 periods*.
+- *Persists across 3 periods*.
+- *Persists across 4+ periods*. Note this is explicitly **not** "annual
+  persistence" -- the project doesn't yet span a full seasonal cycle.
 
-**Significant, FDR q < .05 (HK)** -- a solid black ring (vs. a thin gray one)
-marks that a venue's pooled residual clears a Benjamini-Hochberg false-discovery-rate
-correction at q < .05, applied across every pooled venue at once (not a
-per-venue p < .05, which would produce far too many false positives across
-tens of thousands of venues). This is the strictest bar used anywhere in this
-project. A venue can have the largest ring (persisting all 8 periods) and
-still not be black-ringed, if its pooled effect size never clears that bar --
-that's deliberate: being observed a long time isn't the same as being an
-unusual venue, only enough data to test whether it is one.
+**Significant, FDR q < .05 (HK)** -- also moved off the map and into those
+same tabs (the bar split, and a venue's "FDR q" column in the table). It
+marks that a venue's pooled residual clears a Benjamini-Hochberg
+false-discovery-rate correction at q < .05, applied across every pooled
+venue at once (not a per-venue p < .05, which would produce far too many
+false positives across tens of thousands of venues). This is the strictest
+bar used anywhere in this project. A venue can be in the top persistence
+tier (persisting all 8 periods) and still not be significant, if its pooled
+effect size never clears that bar -- that's deliberate: being observed a
+long time isn't the same as being an unusual venue, only enough data to
+test whether it is one.
+
+Both used to be drawn as rings directly on the map dots (size for tier,
+a black vs. gray stroke for significance). They were moved into the tabs
+below instead, since color + size + two different ring styles all on one
+small dot read as crowded -- the map now just colors by residual, and the
+tabs carry the persistence/significance detail without overloading the dot.
 
 ---
 
