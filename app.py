@@ -531,8 +531,14 @@ with tab_tier:
     )
 
 with tab_cat:
+    # display_category, not the raw top_category: one specific, verified case
+    # (venues filed under "Museums, Historical Sites, and Similar Institutions")
+    # is ~91% nature parks by sub_category, not museums -- grouping by the raw
+    # label would present a park-visitation pattern as a museum one. Export
+    # script's docstring has the exact numbers; only this chart's grouping
+    # field changes, the underlying top_category/sub_category data is intact.
     cat_stats = (
-        df.groupby("top_category")
+        df.groupby("display_category")
         .agg(n=("placekey", "size"), mean_resid=("mixing_residual_z", "mean"),
              pct_sig=("fdr_sig_05_hk", "mean"))
         .reset_index()
@@ -540,16 +546,17 @@ with tab_cat:
     cat_stats = cat_stats[cat_stats["n"] >= 30].sort_values("n", ascending=False).head(15)
     cat_stats["pct_sig"] = (cat_stats["pct_sig"] * 100).round(1)
     cat_stats = cat_stats.sort_values("mean_resid")
-    cat_stats["top_category"] = pd.Categorical(
-        cat_stats["top_category"], categories=cat_stats["top_category"], ordered=True
+    cat_stats["display_category"] = pd.Categorical(
+        cat_stats["display_category"], categories=cat_stats["display_category"], ordered=True
     )
-    st.bar_chart(cat_stats, x="top_category", y="mean_resid", horizontal=True)
+    st.bar_chart(cat_stats, x="display_category", y="mean_resid", horizontal=True, y_label="Mean residual z")
     st.caption(
-        "Mean residual z-score by top category, for the 15 categories with the most venues "
-        "this period (at least 30). Positive (right) means that category tends to mix more "
-        "than the model expects for where its venues sit; negative (left) means less. "
-        "This is top_category, not sub_category, since sub_category is missing for ~7% of "
-        "venues and top_category is always present."
+        "Mean residual z-score by category, for the 15 categories with the most venues this "
+        "period (at least 30). Positive (right) means that category tends to mix more than "
+        "the model expects for where its venues sit; negative (left) means less. One category "
+        "is relabeled here: venues filed under \"Museums, Historical Sites, and Similar "
+        "Institutions\" are mostly (~91%) sub-categorized as nature parks, not museums, so "
+        "grouping by the raw label would read as a museum pattern when it's really a park one."
     )
 
 with tab_borough:
@@ -580,7 +587,7 @@ with tab_table:
     else:
         sig_df["Tier"] = sig_df["persistence_tier"].map(TIER_LABEL)
         show_cols = {
-            "location_name": "Venue", "borough": "Borough", "top_category": "Category",
+            "location_name": "Venue", "borough": "Borough", "display_category": "Category",
             "mixing_residual_z": "Residual z", "Tier": "Tier", "n_months": "Periods pooled",
             "q_bh_hk": "FDR q",
         }

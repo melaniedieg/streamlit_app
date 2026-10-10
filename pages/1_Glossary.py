@@ -122,6 +122,33 @@ category (e.g. top category "Museums, Historical Sites, and Similar
 Institutions", sub-category "Nature Parks and Other Similar Institutions").
 About 7% of venues are missing a sub-category and fall back to showing their
 top category instead, both in this data and in the map's tooltip.
+
+**Display category** (the "Evidence breakdown" charts and table, not the map
+tooltip) -- the same as top category, except for one specific, verified
+relabel: venues filed under "Museums, Historical Sites, and Similar
+Institutions" are about 91% sub-categorized as nature parks, not museums,
+so grouping by the raw label there would present a park-visitation pattern
+as a museum one. That one category shows as "Parks & Nature Sites (filed
+under \"Museums, Historical Sites\")" instead; every other category is
+unchanged, and the underlying top/sub-category data isn't altered anywhere.
+
+---
+
+### A venue that's really several records
+
+A handful of venues (265 groups, mostly places with inconsistent or
+changed POI names over time -- Jacob Riis Park is the clearest example,
+filed under three separate names across different periods) get merged into
+one row per period rather than shown as separate dots. Their visitor device
+counts are summed across the group's records (devices are a real total);
+every other shown number and the map position come from whichever single
+record in the group had the most devices that period, rather than an
+invented average, since averaging a z-score across records wouldn't itself
+be a valid z-score. The persistence tier and FDR significance already
+applied to the whole group either way, since the pooling in
+`consolidate_fragments.py`/`pool_persistence.py` was always done at the
+group level -- this only fixes how a group's *single-period* numbers get
+shown, so one physical place isn't drawn, or counted, 2-3 times.
 """
 )
 
